@@ -48,7 +48,7 @@ COMMENT     ::= "#" { (* any character except newline *) }
                  Reasoning blocks (§6) are the semantic equivalent of comments
                  that carry weight at runtime. *)
 
-NEWLINE     ::= "\n" { "\r" }
+NEWLINE     ::= "\r\n" | "\n"
 INDENT      ::= (* synthetic: emitted when indentation increases *)
 DEDENT      ::= (* synthetic: emitted when indentation decreases *)
 ARROW       ::= "→"  (* U+2192 — pipeline step operator *)
@@ -291,8 +291,8 @@ try_stmt_inline ::= "try" ":" inline_action
 
 expr            ::= logical_expr
 
-logical_expr    ::= comparison_expr { logical_op comparison_expr }
-logical_op      ::= "and" | "or" | "not"
+logical_expr    ::= unary_logical_expr { ("and" | "or") unary_logical_expr }
+unary_logical_expr ::= [ "not" ] comparison_expr
 
 comparison_expr ::= additive_expr [ comparison_op additive_expr ]
 comparison_op   ::= "==" | "!=" | ">" | ">=" | "<" | "<="
@@ -303,22 +303,21 @@ additive_op     ::= "+" | "-"
 multiplicative_expr ::= unary_expr { multiplicative_op unary_expr }
 multiplicative_op   ::= "*" | "/" | "%"
 
-unary_expr      ::= [ "not" | "-" ] primary_expr
+unary_expr      ::= [ "-" ] postfix_expr
 
-primary_expr    ::= literal
+postfix_expr    ::= atom_expr { postfix_op }
+postfix_op      ::= "." IDENTIFIER
+                  | "(" [ arg_list ] ")"
+
+atom_expr       ::= literal
                   | old_expr
-                  | call_expr
-                  | member_access
                   | IDENTIFIER
                   | "(" expr ")"
 
-call_expr       ::= IDENTIFIER "(" [ arg_list ] ")"
+call_expr       ::= postfix_expr
 arg_list        ::= arg { "," arg }
 arg             ::= expr
                   | IDENTIFIER "=" expr    (* keyword argument *)
-
-member_access   ::= primary_expr "." IDENTIFIER
-                  (* left-recursive; parsers should implement as iteration *)
 
 expr_stmt       ::= expr NEWLINE
 
@@ -350,10 +349,7 @@ map_entry       ::= (STRING | IDENTIFIER) ":" expr
   gradual type systems. Type annotations are optional everywhere.
 *)
 
-type_expr       ::= simple_type
-                  | generic_type
-                  | union_type
-                  | nullable_type
+type_expr       ::= union_type
 
 simple_type     ::= IDENTIFIER
                     (* built-ins: int, float, bool, string, bytes, null,
@@ -362,11 +358,13 @@ simple_type     ::= IDENTIFIER
 generic_type    ::= IDENTIFIER "<" type_arg_list ">"
 type_arg_list   ::= type_expr { "," type_expr }
 
-union_type      ::= type_expr "|" type_expr
-                    (* e.g.: string | null, int | float *)
+union_type      ::= nullable_type { "|" nullable_type }
+                    (* e.g.: string | null, int | float | bytes *)
 
-nullable_type   ::= type_expr "?"
+nullable_type   ::= primary_type [ "?" ]
                     (* shorthand for type_expr | null *)
+
+primary_type    ::= generic_type | simple_type
 
 
 (* =========================================================================== *)
