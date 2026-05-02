@@ -1,0 +1,442 @@
+# =============================================================================
+# Bifrost RFC-0002 — Formal Grammar
+# EBNF notation (ISO/IEC 14977 with minor extensions noted below)
+#
+# Notation conventions used here:
+#   ::=          production rule
+#   |            ordered alternative (first match wins)
+#   [ ... ]      optional (zero or one)
+#   { ... }      repetition (zero or more)
+#   ( ... )      grouping
+#   " ... "      terminal string (case-sensitive)
+#   UPPER_CASE   lexical token (defined in §1)
+#   (* ... *)    comment
+#
+# Indentation-sensitive blocks:
+#   INDENT / DEDENT are synthetic tokens emitted by the lexer, modeled after
+#   Python's IndentationError model. A block opens on the first line whose
+#   indentation is strictly greater than the enclosing line; it closes when
+#   indentation returns to or below the enclosing level.
+#   Canonical indent unit: 2 spaces. Tabs are forbidden.
+#
+# Encoding: UTF-8. The → character (U+2192) is a reserved operator token.
+# Status: RFC-0002 — Draft. All productions are provisional.
+# =============================================================================
+
+
+(* =========================================================================== *)
+(* §1  LEXICAL TOKENS                                                           *)
+(* =========================================================================== *)
+
+IDENTIFIER  ::= LETTER { LETTER | DIGIT | "_" }
+              (* lowercase-first convention; SCREAMING_CASE reserved for
+                 compiler-emitted constants *)
+
+NUMBER      ::= INTEGER | FLOAT
+INTEGER     ::= DIGIT { DIGIT }
+FLOAT       ::= DIGIT { DIGIT } "." DIGIT { DIGIT }
+
+STRING      ::= '"' { STRING_CHAR } '"'
+              | "'" { STRING_CHAR } "'"
+STRING_CHAR ::= (* any UTF-8 character except the enclosing quote or newline,
+                   or an escape sequence: \n \t \\ \" \' *)
+
+BOOL        ::= "true" | "false"
+
+COMMENT     ::= "#" { (* any character except newline *) }
+              (* Comments are stripped by the lexer and do not appear in the AST.
+                 Reasoning blocks (§6) are the semantic equivalent of comments
+                 that carry weight at runtime. *)
+
+NEWLINE     ::= "\n" { "\r" }
+INDENT      ::= (* synthetic: emitted when indentation increases *)
+DEDENT      ::= (* synthetic: emitted when indentation decreases *)
+ARROW       ::= "→"  (* U+2192 — pipeline step operator *)
+
+
+(* =========================================================================== *)
+(* §2  TOP-LEVEL STRUCTURE                                                      *)
+(* =========================================================================== *)
+
+program         ::= { top_level_decl }
+
+top_level_decl  ::= pipeline_decl
+                  | function_decl
+                  | module_decl    (* reserved; not specified in RFC-0001 *)
+
+
+(* =========================================================================== *)
+(* §3  PIPELINE DECLARATIONS                                                    *)
+(* =========================================================================== *)
+
+(*
+  Pipelines express ordered data transformation as a first-class construct.
+  Each step receives the output of the previous step as its implicit input.
+
+  Example:
+    pipeline process_orders:
+      load_orders()
+      → validate(): drop invalid
+      → enrich_with_customer()
+      → calculate_totals()
+      → persist()
+      with: monitoring, retry(max=3), trace
+*)
+
+pipeline_decl   ::= "pipeline" IDENTIFIER ":" NEWLINE
+                    INDENT pipeline_body DEDENT
+
+pipeline_body   ::= pipeline_first_step
+                    { pipeline_next_step }
+                    [ pipeline_with ]
+
+(* The first step has no leading arrow *)
+pipeline_first_step ::= call_expr [ ":" pipeline_action ] NEWLINE
+
+(* Subsequent steps are prefixed with → *)
+pipeline_next_step  ::= ARROW call_expr [ ":" pipeline_action ] NEWLINE
+
+pipeline_action ::= "drop" IDENTIFIER          (* discard matching items *)
+                  | "collect" IDENTIFIER        (* accumulate matching items *)
+                  | "skip"                       (* skip silently *)
+                  | "halt"                       (* stop the pipeline *)
+                  | IDENTIFIER                   (* user-defined action label *)
+
+pipeline_with   ::= "with" ":" with_item { "," with_item } NEWLINE
+
+with_item       ::= IDENTIFIER [ "(" with_arg_list ")" ]
+
+with_arg_list   ::= with_arg { "," with_arg }
+with_arg        ::= IDENTIFIER "=" literal
+
+
+(* =========================================================================== *)
+(* §4  FUNCTION DECLARATIONS                                                    *)
+(* =========================================================================== *)
+
+(*
+  Functions declare inputs, outputs, contracts, and (optionally) reasoning.
+  The body may contain contracts, reasoning blocks, iteration, and statements.
+  Order within the body: contracts → reasoning → statements (recommended,
+  not enforced by the parser).
+
+  Example:
+    function transfer(from, to, amount) → result:
+      requires: amount > 0
+      requires: from.balance >= amount
+      guarantees: from.balance + to.balance == old(from.balance + to.balance)
+      guarantees: result.audited
+*)
+
+function_decl   ::= "function" IDENTIFIER "(" [ param_list ] ")" "→" type_expr ":"
+                    NEWLINE INDENT function_body DEDENT
+
+param_list      ::= param { "," param }
+param           ::= IDENTIFIER [ ":" type_expr ]    (* type annotation optional *)
+
+function_body   ::= { function_clause }
+
+function_clause ::= requires_clause
+                  | guarantees_clause
+                  | uncertain_clause
+                  | strategy_clause
+                  | confidence_clause
+                  | on_low_confidence_clause
+                  | on_error_clause
+                  | iterate_stmt
+                  | try_stmt
+                  | yield_stmt
+                  | expr_stmt
+
+
+(* =========================================================================== *)
+(* §5  CONTRACT CLAUSES                                                         *)
+(* =========================================================================== *)
+
+(*
+  Contracts are machine-checkable assertions about function pre- and
+  post-conditions. They replace defensive comments and are part of the
+  semantic model, not annotations.
+
+  requires    — precondition; must hold before the function executes.
+  guarantees  — postcondition; must hold when the function returns.
+  old(expr)   — captures the value of expr at function entry, for use in
+                guarantees clauses only.
+*)
+
+requires_clause     ::= "requires" ":" expr NEWLINE
+
+guarantees_clause   ::= "guarantees" ":" expr NEWLINE
+
+(* old() is a built-in function valid only inside guarantees expressions *)
+old_expr            ::= "old" "(" expr ")"
+
+
+(* =========================================================================== *)
+(* §6  REASONING BLOCKS                                                         *)
+(* =========================================================================== *)
+
+(*
+  Reasoning blocks make the AI's (or programmer's) intent first-class.
+  They declare uncertainty, resolution strategy, confidence thresholds,
+  and escalation paths — constructs that today live in comments or nowhere.
+
+  Example:
+    function classify_intent(text) → category:
+      uncertain: ambiguous_inputs
+      strategy:
+        primary: semantic_match(text, taxonomy)
+        fallback: ask_clarification()
+      confidence: required > 0.75
+      on_low_confidence: escalate_to_human
+*)
+
+uncertain_clause        ::= "uncertain" ":" expr NEWLINE
+                          (* expr names the set or condition of uncertain inputs *)
+
+strategy_clause         ::= "strategy" ":" NEWLINE
+                            INDENT strategy_body DEDENT
+
+strategy_body           ::= "primary" ":" call_expr NEWLINE
+                            [ "fallback" ":" call_expr NEWLINE ]
+                            { "alternative" ":" call_expr NEWLINE }
+
+confidence_clause       ::= "confidence" ":" "required" comparison_op NUMBER NEWLINE
+
+on_low_confidence_clause ::= "on_low_confidence" ":" action_expr NEWLINE
+
+action_expr             ::= call_expr
+                          | IDENTIFIER    (* named action / handler *)
+
+
+(* =========================================================================== *)
+(* §7  ITERATION                                                                *)
+(* =========================================================================== *)
+
+(*
+  Iteration expresses *what* to do with a collection, not *how* to traverse it.
+  The iterate construct eliminates accumulators, index variables, and exception
+  plumbing by making collection, filtering, and error handling declarative.
+
+  Example:
+    iterate users:
+      when user.active:
+        try: collect enrich(user)
+        on_error: log_and_skip
+    yield: collected
+*)
+
+iterate_stmt    ::= "iterate" expr ":" NEWLINE
+                    INDENT iterate_body DEDENT
+
+iterate_body    ::= { when_clause } [ yield_stmt ]
+
+when_clause     ::= "when" expr ":" inline_or_block
+
+inline_or_block ::= inline_action NEWLINE
+                  | NEWLINE INDENT { when_inner_stmt } DEDENT
+
+inline_action   ::= "collect" expr
+                  | "log_and_skip"
+                  | "skip"
+                  | "halt"
+                  | try_stmt_inline
+                  | call_expr
+
+when_inner_stmt ::= try_stmt
+                  | iterate_stmt     (* nested iteration *)
+                  | expr_stmt
+                  | yield_stmt
+
+yield_stmt      ::= "yield" ":" expr NEWLINE
+
+
+(* =========================================================================== *)
+(* §8  ERROR HANDLING                                                           *)
+(* =========================================================================== *)
+
+(*
+  Error handling is declared as intent, not as structured exception machinery.
+  The try/on_error pair wraps a single expression; multi-step error handling
+  uses a nested block.
+
+  Example (inline):
+    try: collect enrich(user)
+    on_error: log_and_skip
+
+  Example (block):
+    try:
+      collect enrich(user)
+      persist(user)
+    on_error:
+      log_error(user)
+      skip
+*)
+
+try_stmt        ::= try_head on_error_clause
+
+try_head        ::= "try" ":" inline_action NEWLINE
+                  | "try" ":" NEWLINE INDENT { expr_stmt } DEDENT
+
+on_error_clause ::= "on_error" ":" inline_action NEWLINE
+                  | "on_error" ":" NEWLINE INDENT { expr_stmt } DEDENT
+
+(* Inline variant used inside when_clause *)
+try_stmt_inline ::= "try" ":" inline_action
+
+
+(* =========================================================================== *)
+(* §9  EXPRESSIONS                                                              *)
+(* =========================================================================== *)
+
+expr            ::= logical_expr
+
+logical_expr    ::= comparison_expr { logical_op comparison_expr }
+logical_op      ::= "and" | "or" | "not"
+
+comparison_expr ::= additive_expr [ comparison_op additive_expr ]
+comparison_op   ::= "==" | "!=" | ">" | ">=" | "<" | "<="
+
+additive_expr   ::= multiplicative_expr { additive_op multiplicative_expr }
+additive_op     ::= "+" | "-"
+
+multiplicative_expr ::= unary_expr { multiplicative_op unary_expr }
+multiplicative_op   ::= "*" | "/" | "%"
+
+unary_expr      ::= [ "not" | "-" ] primary_expr
+
+primary_expr    ::= literal
+                  | old_expr
+                  | call_expr
+                  | member_access
+                  | IDENTIFIER
+                  | "(" expr ")"
+
+call_expr       ::= IDENTIFIER "(" [ arg_list ] ")"
+arg_list        ::= arg { "," arg }
+arg             ::= expr
+                  | IDENTIFIER "=" expr    (* keyword argument *)
+
+member_access   ::= primary_expr "." IDENTIFIER
+                  (* left-recursive; parsers should implement as iteration *)
+
+expr_stmt       ::= expr NEWLINE
+
+
+(* =========================================================================== *)
+(* §10  LITERALS                                                                *)
+(* =========================================================================== *)
+
+literal         ::= NUMBER
+                  | STRING
+                  | BOOL
+                  | list_literal
+                  | map_literal
+                  | "null"
+
+list_literal    ::= "[" [ expr { "," expr } ] "]"
+
+map_literal     ::= "{" [ map_entry { "," map_entry } ] "}"
+map_entry       ::= (STRING | IDENTIFIER) ":" expr
+
+
+(* =========================================================================== *)
+(* §11  TYPE EXPRESSIONS                                                        *)
+(* =========================================================================== *)
+
+(*
+  Type system is an open question (RFC-0001 §7). This grammar assumes a
+  structural, optionally-annotated approach compatible with both static and
+  gradual type systems. Type annotations are optional everywhere.
+*)
+
+type_expr       ::= simple_type
+                  | generic_type
+                  | union_type
+                  | nullable_type
+
+simple_type     ::= IDENTIFIER
+                    (* built-ins: int, float, bool, string, bytes, null,
+                       any, void — all are ordinary identifiers *)
+
+generic_type    ::= IDENTIFIER "<" type_arg_list ">"
+type_arg_list   ::= type_expr { "," type_expr }
+
+union_type      ::= type_expr "|" type_expr
+                    (* e.g.: string | null, int | float *)
+
+nullable_type   ::= type_expr "?"
+                    (* shorthand for type_expr | null *)
+
+
+(* =========================================================================== *)
+(* §12  MODULE DECLARATIONS (reserved)                                         *)
+(* =========================================================================== *)
+
+(*
+  Module and package model is an open question (RFC-0001 §7).
+  The production below reserves the keyword and establishes expected shape;
+  semantics are not defined in this RFC.
+*)
+
+module_decl     ::= "module" IDENTIFIER [ ":" STRING ] NEWLINE
+                    INDENT { top_level_decl } DEDENT
+
+
+(* =========================================================================== *)
+(* §13  RESERVED KEYWORDS                                                      *)
+(* =========================================================================== *)
+
+(*
+  The following identifiers are reserved and may not be used as IDENTIFIER
+  tokens in user programs:
+
+  pipeline    function    iterate     module
+  requires    guarantees  uncertain   strategy
+  confidence  yield       with        when
+  try         on_error    on_low_confidence
+  primary     fallback    alternative
+  collect     drop        skip        halt
+  and         or          not         true        false       null
+  old
+
+  Contextual keywords (valid as IDENTIFIER in most positions, reserved in
+  specific syntactic contexts):
+  monitoring  retry       trace
+*)
+
+
+(* =========================================================================== *)
+(* §14  OPEN QUESTIONS AND INTENTIONAL GAPS                                    *)
+(* =========================================================================== *)
+
+(*
+  The following are known gaps in this grammar. They are not omissions —
+  they are invitations for RFC-0003 and beyond.
+
+  [G1] Concurrency: no spawn, async, await, or actor primitives defined.
+       Expected shape: "concurrent pipeline ..." or "spawn function(...)".
+
+  [G2] Pattern matching: no match/case construct. The when_clause in iterate
+       is the closest current construct; it may generalize.
+
+  [G3] Type declarations: no struct, enum, or trait/protocol definitions.
+       Type expressions reference names but no grammar exists for declaring them.
+
+  [G4] Import / module resolution: module_decl is reserved but semantics are
+       undefined. No import or use statement exists.
+
+  [G5] Annotations / decorators: no syntax for attaching metadata to
+       declarations (e.g., @deprecated, @ai_generated).
+
+  [G6] First-class functions / closures: call_expr covers named calls but
+       anonymous functions and higher-order passing are unspecified.
+
+  [G7] Indentation ambiguity: the INDENT/DEDENT model needs a formal
+       specification of how blank lines and comments interact with block
+       boundaries.
+
+  [G8] Unicode identifiers: LETTER is currently underspecified. The intent
+       is to allow any Unicode letter (XID_Start / XID_Continue per Unicode
+       Standard Annex #31), but this requires explicit statement.
+*)
