@@ -1,0 +1,241 @@
+# =============================================================================
+# Bifrost .gitignore
+# Multi-stack, future-proof for an RFC-stage project that may evolve into
+# a reference implementation in Python, Rust, JavaScript/TypeScript, or other.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Operating Systems
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# -----------------------------------------------------------------------------
+# Editors & IDEs
+# -----------------------------------------------------------------------------
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# JetBrains (IntelliJ, PyCharm, WebStorm, CLion, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Vim / Neovim
+*.swp
+*.swo
+*.swn
+Session.vim
+.netrwhist
+tags
+
+# Emacs
+*~
+\#*\#
+.\#*
+.dir-locals.el
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Zed
+.zed/
+
+# General editor backups
+*.bak
+*.orig
+*.tmp
+
+# -----------------------------------------------------------------------------
+# Python (likely for reference interpreter / transpiler)
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type checkers
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# -----------------------------------------------------------------------------
+# Rust (possible alternative for reference compiler / VM)
+# -----------------------------------------------------------------------------
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# -----------------------------------------------------------------------------
+# JavaScript / TypeScript / Node.js (possible for tooling, LSP)
+# -----------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-store/
+.yarn/
+.npm/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+
+# -----------------------------------------------------------------------------
+# Go (possible for tooling)
+# -----------------------------------------------------------------------------
+*.exe
+*.exe~
+*.dll
+*.test
+go.work
+
+# -----------------------------------------------------------------------------
+# C/C++ (if VM ever goes that route)
+# -----------------------------------------------------------------------------
+*.o
+*.obj
+*.a
+*.lib
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+
+# -----------------------------------------------------------------------------
+# Build & Compilation Artifacts (generic)
+# -----------------------------------------------------------------------------
+build/
+dist/
+out/
+bin/
+obj/
+target/
+*.log
+
+# -----------------------------------------------------------------------------
+# Bifrost-specific (anticipated)
+# -----------------------------------------------------------------------------
+# Compiled Bifrost artifacts (when the language has an implementation)
+*.bfc
+*.bfo
+*.bfir
+
+# Generated grammar / parser files
+generated/
+*.generated.*
+
+# Reference interpreter caches
+.bifrost-cache/
+.bifrost/
+
+# -----------------------------------------------------------------------------
+# Documentation generators
+# -----------------------------------------------------------------------------
+# MkDocs / Sphinx / Docusaurus
+site/
+_site/
+docs/_build/
+docs/build/
+.docusaurus/
+
+# -----------------------------------------------------------------------------
+# Secrets & local configuration
+# -----------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+.envrc
+secrets/
+*.pem
+*.key
+*.crt
+credentials.json
+
+# -----------------------------------------------------------------------------
+# AI / LLM tooling artifacts
+# -----------------------------------------------------------------------------
+# Local AI assistant configs (project-specific overrides go in committed files)
+.aider*
+.cursor/
+.continue/
+.claude/
+
+# Reasoning traces / scratchpads (if accidentally generated)
+.scratch/
+.reasoning/
+*.trace.local
+
+# -----------------------------------------------------------------------------
+# Misc
+# -----------------------------------------------------------------------------
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+.history/
